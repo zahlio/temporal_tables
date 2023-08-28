@@ -16,6 +16,7 @@ DECLARE
   pg_version integer;
   newVersion record;
   oldVersion record;
+  json_data jsonb;
 BEGIN
 
   IF TG_WHEN != 'BEFORE' OR TG_LEVEL != 'ROW' THEN
@@ -177,16 +178,28 @@ BEGIN
         RETURN NEW;
       END IF;
     END IF;
+
+    IF array_length(commonColumns, 1) IS NULL OR array_length(commonColumns, 1) <= 0 THEN
+      RAISE 'commonColumns is empty or null';
+    END IF;
+
+    -- Convert NEW or OLD row to JSON format
+    IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+      json_data := to_jsonb(NEW);
+    ELSE
+      json_data := to_jsonb(OLD);
+    END IF;
+
     EXECUTE ('INSERT INTO ' ||
       history_table ||
       '(' ||
       array_to_string(commonColumns , ',') ||
       ',' ||
       quote_ident(sys_period) ||
-      ') VALUES ($1.' ||
+      ', json_data) VALUES ($1.' ||
       array_to_string(commonColumns, ',$1.') ||
-      ',tstzrange($2, $3, ''[)''))')
-       USING OLD, range_lower, time_stamp_to_use;
+      ',tstzrange($2, $3, ''[)''), $4)')
+      USING OLD, range_lower, time_stamp_to_use, json_data;
   END IF;
 
   IF TG_OP = 'UPDATE' OR TG_OP = 'INSERT' THEN
